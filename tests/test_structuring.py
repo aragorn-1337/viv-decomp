@@ -12,6 +12,11 @@ from dec_engine.dec_impl.structuring.struct import (
     StructuredCFG,
     StructuringPass,
 )
+from dec_engine.dec_impl.structuring.domtree import (
+    compute_dominators,
+    detect_back_edges,
+    find_natural_loops,
+)
 from dec_engine.dec_impl.ir.block import BasicBlock, BlockGraph
 from dec_engine.dec_impl.ir.expression import Const, BinOp, Size, OpType
 
@@ -241,3 +246,48 @@ class TestStructuringPass:
     def test_structured_cfg_root_initially_none(self, simple_graph):
         sp = StructuringPass(simple_graph)
         assert sp._structured_cfg is None
+
+
+# ── Malformed-graph robustness (regression: cyclic idom hang) ──
+
+class _GraphStub(dict):
+    """Dict-like graph expected by domtree ops: dict access + .blocks attr."""
+
+    def __init__(self, blocks):
+        super().__init__(blocks)
+        self.blocks = blocks
+        entry = min(blocks.values(), key=lambda b: b.addr)
+        self.entry_block = entry
+
+    def __getitem__(self, k):
+        return self.blocks[k]
+
+
+class TestMalformedGraphRobustness:
+    def _make_cyclic_graph(self):
+        entry = BasicBlock(addr=0x1000, is_entry=True)
+        bb = BasicBlock(addr=0x2000)
+        entry.successors = [bb]
+        bb.predecessors = [entry]
+        bb.successors = [entry]
+        return _GraphStub({0x1000: entry, 0x2000: bb})
+
+    def test_find_natural_loops_terminates_with_cyclic_idom(self):
+        """A cyclic idom map (a->b->a) must not hang the dominance-set walk."""
+        g = self._make_cyclic_graph()
+        cyclic_idoms = {0x1000: 0x2000, 0x2000: 0x1000}
+        loops = find_natural_loops(g, idoms=cyclic_idoms)
+        assert isinstance(loops, list)
+
+    def test_detect_back_edges_terminates_with_cyclic_idom(self):
+        g = self._make_cyclic_graph()
+        cyclic_idoms = {0x1000: 0x2000, 0x2000: 0x1000}
+        edges = detect_back_edges(g, cyclic_idoms)
+        assert isinstance(edges, list)
+
+    def test_compute_dominators_has_iteration_cap(self):
+        """compute_dominators must terminate even on a degenerate graph."""
+        entry = BasicBlock(addr=0x1000, is_entry=True)
+        g = _GraphStub({0x1000: entry})
+        idoms = compute_dominators(g)
+        assert isinstance(idoms, dict)

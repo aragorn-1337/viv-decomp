@@ -96,9 +96,11 @@ def detect_back_edges(graph, idoms):
     for addr in all_keys:
         ds = {addr}
         cur = idoms.get(addr) if addr in idoms else None
-        while (cur is not None and cur != -1 and 
-               cur in graph.blocks):
+        seen: set = {addr}
+        while (cur is not None and cur != -1 and
+               cur in graph.blocks and cur not in seen):
             ds.add(cur)
+            seen.add(cur)
             nxt = idoms.get(cur) if cur in idoms else None
             if nxt == cur or nxt is None:
                 break
