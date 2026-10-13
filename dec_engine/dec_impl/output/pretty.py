@@ -549,12 +549,17 @@ class PrettyPrinter:
         if not self.graph.blocks or not self._dominators:
             return
         
-        # Build dominance sets from idom map
+        # Build dominance sets from idom map.
+        # Guard against cyclic/malformed idom maps so the chain walk always
+        # terminates (a 2-cycle a->b->a would otherwise loop forever).
         dom_sets: dict[int, set[int]] = {}
         for addr in self._dominators:
             d_set = {addr}
             cur = self._dominators.get(addr)
-            while cur is not None and cur != -1 and cur in self.graph.blocks:
+            seen: set[int] = set()
+            while (cur is not None and cur != -1 and cur in self.graph.blocks
+                   and cur not in seen):
+                seen.add(cur)
                 d_set.add(cur)
                 nxt = self._dominators.get(cur) if cur in self._dominators else None
                 if nxt == cur or nxt is None:
