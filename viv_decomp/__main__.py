@@ -41,6 +41,11 @@ def main(argv: list[str] | None = None) -> int:
             do_ssa=args.ssa,
             arch=args.arch,
         )
+        if args.export_fmt:
+            # Graph export path (skips decompile pipeline)
+            exported = decompiler.export_graph(args.address, args.export_fmt)
+            _write_output(exported, args.output, None)
+            return 0
         output = decompiler.decompile_address(args.address)
         if not output:
             print("Error: No output produced", file=sys.stderr)
@@ -91,6 +96,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--arch", dest="arch", default=None,
                    help="Architecture override (amd64|i386|arm|arm64|mips|ppc); "
                         "auto-detected from binary if omitted")
+    p.add_argument("--export", dest="export_fmt", choices=["json", "svg", "dot"],
+                   default=None,
+                   help="Export the function CFG graph (json|svg|dot) instead of code")
     # verbosity
     p.add_argument("-v", "--verbose", action="store_true",
                    help="Enable verbose output")

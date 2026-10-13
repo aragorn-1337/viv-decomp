@@ -305,6 +305,23 @@ class VivisectDecompiler:
         return result  # type: ignore
 
 
+    def export_graph(self, funcva: int, fmt: str, name: str = "") -> str:
+        """Build the CFG for a function and export it (json|svg|dot).
+
+        Independent of the decompile pipeline — only the graph builder runs.
+        """
+        from dec_engine.dec_impl.export.graph import export_json, export_svg, graph_to_dot
+
+        graph = self.graph_builder.get_graph(funcva, name)
+        if fmt == "json":
+            return export_json(graph)
+        if fmt == "svg":
+            return export_svg(graph)
+        if fmt == "dot":
+            return graph_to_dot(graph)
+        raise ValueError(f"Unknown export format: {fmt}")
+
+
 # ── Convenience function ──
 
 def decompile(binary_path: str, funcva: int, name: str = "") -> str:
