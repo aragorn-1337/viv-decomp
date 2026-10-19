@@ -51,6 +51,7 @@ class BlockGraph:
     entry_block: Optional[BasicBlock] = None  # type: ignore
     blocks: Dict[int, BasicBlock] = field(default_factory=dict)  # addr -> BB
     name: str = ""  # Function name
+    metadata: Dict = field(default_factory=dict)  # plugin/analysis annotations
 
     def __post_init__(self):
         if self.entry_block is None and self.blocks:
