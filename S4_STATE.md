@@ -1,45 +1,48 @@
-# viv-decomp — Project State (S1–S7 COMPLETE)
+# viv-decomp — Project State (S1–S8 progress)
 
-Handoff doc for resuming work on the decompiler. Last updated after S7 benchmark
-suite. Phases S1–S7 are done and merged; PR#8 (benchmark) is open.
+Handoff doc for resuming work on the decompiler. Last updated after the S8
+plugin system. Phases S1–S7 complete + S6 done; S8 plugin foundation done.
 
 ## Active branch & git state
-- **Current branch:** `s7-benchmark` (last work: benchmark suite)
-- Test suite: **382/382 passing**
-- PR#8 (open): S7 benchmark suite
+- **Current branch:** `s8-plugin-system` (last work: plugin system)
+- Test suite: **438/438 passing**
+- PR#13 (open): S8 plugin system
 
 ## Branch map / PRs
 | Branch | Contents | PR |
 |--------|----------|----|
 | `phase0-ir-layer` | IR + symbolik layer | #1 merged |
-| `phase2-control-flow` | S2 loop reconstruction + S3 graph-aware type inference | #3 merged |
+| `phase2-control-flow` | S2 loop reconstruction + S3 graph-aware types | #3 merged |
 | `s4-memory-model` | S4 memory: stack-frame + call graph | #4 merged |
-| `s5-multi-arch` | S5 arch selection | #5 merged |
-| `s5-extended-arch` | S5 ext: arm/mips/ppc + --arch CLI | #7 merged |
-| `s7-quality-gate` | S7 quality metrics + gate | #6 merged |
-| `s7-benchmark` | S7 benchmark suite | **#8 open** |
+| `s5-multi-arch` / `s5-extended-arch` | S5 arch selection + aliases/CLI | #5, #7 merged |
+| `s7-quality-gate` / `s7-benchmark` / `s7-loop-harden` | S7 quality + benchmark + robustness | #6, #8, #9 merged |
+| `s6-qt-viewer` / `s6-qt-gui` / `s6-qt-integrate` | S6 headless export + Qt viewer + app | #10, #11, #12 merged |
+| `s8-plugin-system` | S8 plugin system (passes + formatters) | **#13 open** |
 
-## What's done (S1–S7)
-- **S0/S1** IR layer, builder, formatter, SSA (merged).
+## What's done (S1–S8 foundation)
+- **S0/S1** IR layer, builder, formatter, SSA.
 - **S2** Structured control flow: `while(cond){body}` reconstruction in `PrettyPrinter`.
   Fixed a real idom bug (min→max) that blocked loop-header detection.
 - **S3** `TypeAnalyzer.analyze_graph()` — graph-aware type propagation over the CFG.
-- **S4** `dec_engine/dec_impl/memory/` — `StackFrameAnalyzer` (prologue frame size,
-  `[rbp ± offset]` local bucketing) + `CallGraphBuilder` (caller→callee edges).
-- **S5** `dec_engine/dec_impl/arch/` — `ArchSelector` maps arch → Vivisect symbolik
-  context (amd64/i386 + arm/mips/ppc recognition), auto-detect + `--arch` override.
-- **S7** `dec_engine/dec_impl/quality/` — `analyze_output()` (readability, symbol
-  resolution, type accuracy), `QualityGate` thresholds, and a benchmark runner over
-  a synthetic corpus (loop, diamond, call). CI-usable `run_benchmark.py`.
+- **S4** `StackFrameAnalyzer` + `CallGraphBuilder`.
+- **S5** `ArchSelector` (amd64/i386 + arm/mips/ppc aliases + `--arch` CLI).
+- **S6** Headless graph export (JSON/SVG/DOT) + PyQt6 graph viewer + interactive
+  `DecompilerApp` (`--view` CLI). Headless via `QT_QPA_PLATFORM=offscreen`.
+- **S7** Quality metrics + gate + benchmark suite (loop/diamond/call corpus) +
+  loop-hang hardening fix.
+- **S8** `PluginRegistry` for analysis passes + output formatters, discovery via
+  entry_point decorators, wired into `VivisectDecompiler` (passes + formatter).
 
 ## Key files
-- `dec_engine/dec_impl/output/pretty.py` — structured CFG walker + loop/if-else emission
-- `dec_engine/dec_impl/structuring/domtree.py` — Cooper's iterative dominators + back-edges
-- `dec_engine/dec_impl/type_inference/analyze.py` — TypeAnalyzer + analyze_graph()
-- `dec_engine/dec_impl/memory/stack.py` — StackFrameAnalyzer
-- `dec_engine/dec_impl/memory/callgraph.py` — CallGraphBuilder
+- `dec_engine/dec_impl/output/pretty.py` — structured CFG walker
+- `dec_engine/dec_impl/structuring/domtree.py` — dominators + back-edges (hardened)
+- `dec_engine/dec_impl/type_inference/analyze.py` — TypeAnalyzer
+- `dec_engine/dec_impl/memory/stack.py`, `memory/callgraph.py` — memory model
 - `dec_engine/dec_impl/arch/selector.py` — ArchSelector
-- `dec_engine/dec_impl/quality/metrics.py`, `quality/benchmark.py` — quality + benchmark
+- `dec_engine/dec_impl/quality/metrics.py`, `quality/benchmark.py` — quality
+- `dec_engine/dec_impl/export/graph.py` — JSON/SVG/DOT export
+- `dec_engine/dec_impl/plugin/registry.py` — plugin system (S8)
+- `viv_decomp/qt_viewer.py`, `viv_decomp/qt_app.py` — Qt viewer/app
 - `viv_decomp/decompiler.py` — pipeline orchestration
 
 ## Known quirk (IMPORTANT)
@@ -55,16 +58,16 @@ workspace-level fallback.
 `_frame_offset()` in `stack.py` converts both to `(base_reg, signed_offset)`.
 
 ## Pipeline entry points
-- `VivisectDecompiler.decompile_address(funcva, name)` → `DecompOutput` (includes `quality` verdict)
-- `TypeAnalyzer().analyze_graph(graph)` → `TypeEnvironment`
-- `StackFrameAnalyzer().analyze(graph)` → `List[StackVariable]`
-- `CallGraphBuilder().build(funcs)` → `CallGraph`
-- `run_benchmark(gate)` → `List[BenchmarkResult]`; `python tests/benchmarks/run_benchmark.py`
+- `VivisectDecompiler.decompile_address(funcva, name)` → `DecompOutput` (incl. `quality` verdict)
+- `VivisectDecompiler.export_graph(funcva, fmt)` → JSON/SVG/DOT string
+- `VivisectDecompiler(..., plugin_registry=reg, passes=[...], formatter=...)`
+- `PluginRegistry().discover_from([path])` → merge decorated plugins
+- `python -m viv_decomp BIN --view` → interactive Qt app
+- `python tests/benchmarks/run_benchmark.py` → CI quality gate
 
 ## Remaining phases
-- **S6** Qt graph viewer GUI (P3, nice-to-have) — not started.
-- **S8** ML/LLVM roadmap — not started.
-- Benchmark on real binaries — blocked by Vivisect quirk.
+- **S8** remaining: binary patching (diff/apply/regression), LLVM backend,
+  neural type inference. Plugin system (done) makes these pluggable.
 
 ## GitHub workflow convention
 Fork → apply to fork branch → PR against upstream `atlas0fd00m/viv-decomp`.
