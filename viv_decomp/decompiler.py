@@ -31,6 +31,11 @@ from dec_engine.dec_impl.ssa.construct import SsaState, SsaTransform
 from dec_engine.dec_impl.type_inference.analyze import TypeAnalyzer, TypeEnvironment
 from dec_engine.dec_impl.output.pretty import PrettyPrinter
 
+# Imported lazily inside BUILDER_MAP resolution to avoid import cycle.
+def _workspace_builder_cls():
+    from viv_decomp.workspace_builder import WorkspaceGraphBuilder
+    return WorkspaceGraphBuilder
+
 logger = logging.getLogger("viv-decomp")
 
 
@@ -62,15 +67,21 @@ class GraphBuilder(ABC):
 class VivisectGraphBuilder(GraphBuilder):
     """Builds BlockGraph from an existing Vivisect workspace."""
 
-    def __init__(self, binary_path: str, arch: Optional[str] = None):
+    def __init__(self, binary_path: str, arch: Optional[str] = None,
+                 workspace=None):
         super().__init__(binary_path)
-        self.vw = None
-        self.workspace_loaded = False
+        self.vw = workspace
+        self.workspace_loaded = workspace is not None
         self.arch = arch  # optional explicit architecture override
 
+    def set_workspace(self, vw):
+        """Attach an already-loaded Vivisect workspace (e.g. from a GUI/ext)."""
+        self.vw = vw
+        self.workspace_loaded = vw is not None
+
     def load(self) -> None:
-        """Import Vivisect, load the binary workspace."""
-        if self.workspace_loaded:
+        """Import Vivisect, load the binary workspace (if none attached)."""
+        if self.workspace_loaded and self.vw is not None:
             return
         try:
             import vivisect  # noqa: F811
@@ -95,7 +106,7 @@ class VivisectGraphBuilder(GraphBuilder):
 
     def get_graph(self, funcva: int, name: str = "") -> BlockGraph:
         """Build a BlockGraph from the Vivisect workspace using the symbolik graph."""
-        if not self.workspace_loaded:
+        if not self.workspace_loaded or self.vw is None:
             self.load()
         vw = self.vw
         assert vw is not None, "Vivisect workspace not loaded"
@@ -205,6 +216,7 @@ class VivisectDecompiler:
 
     BUILDER_MAP = {
         "vivisect": VivisectGraphBuilder,
+        "workspace": _workspace_builder_cls,  # live-vw path (extension/GUI)
         "ghidra": VivisectGraphBuilder,  # Stub for now
         "raw": RawGraphBuilder,
     }
@@ -216,19 +228,49 @@ class VivisectDecompiler:
         do_ssa: bool = True,
         analyze_types: bool = True,
         arch: Optional[str] = None,
+        plugin_registry=None,
+        passes: Optional[list] = None,
+        formatter: Optional[str] = None,
     ):
         self.binary_path = binary_path
         self.do_ssa = do_ssa
         self.analyze_types = analyze_types
         self.arch = arch  # optional architecture override (S5)
+        self.plugin_registry = plugin_registry
+        self.passes = passes
+        self.formatter = formatter
 
         builder_cls = self.BUILDER_MAP.get(graph_source, RawGraphBuilder)
+        # "workspace" maps to a factory function; resolve lazily.
+        if callable(builder_cls) and not isinstance(builder_cls, type):
+            builder_cls = builder_cls()
         self.graph_builder = builder_cls(binary_path, arch=arch)
 
         # Analysis state
         self.graph: Optional[BlockGraph] = None
         self.ssa_state: Optional[SsaState] = None
         self.type_env: Optional[TypeEnvironment] = None
+
+    @classmethod
+    def from_workspace(cls, vw, graph_source: Optional[str] = None,
+                       do_ssa: bool = True, analyze_types: bool = True,
+                       arch: Optional[str] = None):
+        """Create a decompiler from an already-loaded Vivisect workspace.
+
+        This is the path used by the Vivisect extension/GUI: it consumes the
+        live ``vw`` instead of re-loading the binary, avoiding the
+        ``analyzePLT`` load quirk. The binary path is nominal.
+        """
+        binary = getattr(vw, "_filename", None) or "<workspace>"
+        # Default graph_source to the live-workspace builder, which reads the
+        # CFG from vw.getFunctionGraph() instead of re-loading the binary.
+        graph_source = graph_source or "workspace"
+        decomp = cls(binary_path=binary, graph_source=graph_source,
+                     do_ssa=do_ssa, analyze_types=analyze_types, arch=arch)
+        builder = decomp.graph_builder
+        if hasattr(builder, "set_workspace"):
+            builder.set_workspace(vw)
+        return decomp
 
     def decompile_address(self, funcva: int, name: str = "") -> Optional[dict[str, str]]:
         """Run the full decompiler pipeline on a single function."""
@@ -258,7 +300,12 @@ class VivisectDecompiler:
                 analyzer.analyze_graph(self.graph)  # propagate types over the CFG
                 self.type_env = analyzer.env
                 logger.debug("Type inference complete")
-            
+
+            # 3b. Run plugin analysis passes
+            if self.plugin_registry is not None:
+                self.graph = self.plugin_registry.run_passes(self.graph, self.passes)
+                logger.debug("Plugin passes complete")
+
             # 4. Format output — pass workspace for call target resolution via vw.getName()
             pp = PrettyPrinter(
                 func_name=name or f"func_{funcva:x}",
@@ -267,6 +314,11 @@ class VivisectDecompiler:
                 workspace=self.graph_builder.vw if hasattr(self.graph_builder, 'vw') else None,
             )
             c_code = pp.generate()
+            # Plugin formatter override
+            if self.plugin_registry is not None and self.formatter:
+                c_code = self.plugin_registry.format_output(
+                    DecompOutput(text=c_code, json={}, success=True), self.formatter
+                )
             
             # Build structured JSON snapshot
             from dec_engine.dec_impl.quality.metrics import analyze_output, QualityGate
