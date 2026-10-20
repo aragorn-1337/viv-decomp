@@ -1,12 +1,12 @@
 # viv-decomp — Project State (S1–S8 progress)
 
 Handoff doc for resuming work on the decompiler. Last updated after the S8
-plugin system. Phases S1–S7 complete + S6 done; S8 plugin foundation done.
+live-workspace symbolik lift + real-binary validation.
 
 ## Active branch & git state
-- **Current branch:** `s8-plugin-system` (last work: plugin system)
-- Test suite: **438/438 passing**
-- PR#13 (open): S8 plugin system
+- **Current branch:** `s8-symbolik-live` (last work: live-vw symbolik lift)
+- Test suite: **501/501 passing**
+- PR#16 (open): live-workspace symbolik lift + real-binary integration
 
 ## Branch map / PRs
 | Branch | Contents | PR |
@@ -17,7 +17,10 @@ plugin system. Phases S1–S7 complete + S6 done; S8 plugin foundation done.
 | `s5-multi-arch` / `s5-extended-arch` | S5 arch selection + aliases/CLI | #5, #7 merged |
 | `s7-quality-gate` / `s7-benchmark` / `s7-loop-harden` | S7 quality + benchmark + robustness | #6, #8, #9 merged |
 | `s6-qt-viewer` / `s6-qt-gui` / `s6-qt-integrate` | S6 headless export + Qt viewer + app | #10, #11, #12 merged |
-| `s8-plugin-system` | S8 plugin system (passes + formatters) | **#13 open** |
+| `s8-plugin-system` | S8 plugin system (passes + formatters) | #13 merged |
+| `s8-binary-patch` | S8 binary patching (diff/apply/regression) | #14 merged |
+| `s8-vivisect-ext` | VivisectExtension (viv_extension.py, live-vw builder) | #15 merged |
+| `s8-symbolik-live` | live-vw symbolik lift + real-binary tests | **#16 open** |
 
 ## What's done (S1–S8 foundation)
 - **S0/S1** IR layer, builder, formatter, SSA.
@@ -32,6 +35,11 @@ plugin system. Phases S1–S7 complete + S6 done; S8 plugin foundation done.
   loop-hang hardening fix.
 - **S8** `PluginRegistry` for analysis passes + output formatters, discovery via
   entry_point decorators, wired into `VivisectDecompiler` (passes + formatter).
+- **S8** Binary patching (diff/apply/regression) as a plugin.
+- **S8** Vivisect extension (`viv_extension.py`) + live-workspace graph builder
+  (`WorkspaceGraphBuilder`, graph_source="workspace").
+- **S8** Live-vw symbolik lift — real per-instruction IR via `getSymbolikGraph`
+  → `EffectsBuilder`.
 
 ## Key files
 - `dec_engine/dec_impl/output/pretty.py` — structured CFG walker
@@ -45,12 +53,14 @@ plugin system. Phases S1–S7 complete + S6 done; S8 plugin foundation done.
 - `viv_decomp/qt_viewer.py`, `viv_decomp/qt_app.py` — Qt viewer/app
 - `viv_decomp/decompiler.py` — pipeline orchestration
 
-## Known quirk (IMPORTANT)
-Vivisect's ELF `analyzePLT` raises `Invalid File: None` and aborts real-binary graph
-extraction (`/bin/ls`, `/usr/bin/yes`). Benign but prevents validating against real
-binaries through the current loader. **Workaround:** validate via synthetic graphs
-(see tests/benchmarks). Real-binary validation needs a Vivisect version fix or
-workspace-level fallback.
+## Vivisect note (IMPORTANT — corrected)
+Vivisect's ELF `analyzePLT` raises `Invalid File: None` during `vw.analyze()`.
+This is **benign and internal** — Vivisect catches it and continues analysis.
+**Real-binary validation WORKS**: `/usr/bin/true` loads + analyzes to 50
+functions (arch amd64) and decompiles end-to-end via
+`VivisectDecompiler.from_workspace(vw)`.
+(Confirmed: vivisect 1.3.2; `VivWorkspace` here has NO `getArchitecture` /
+`addFunction` — arch is read via `getMeta('Architecture')`.)
 
 ## IR MemRef shapes (for the stack analyzer)
 1. `MemRef(base=Var('rbp'|'rsp'), offset=Const(signed), size=...)` — Vivisect style
