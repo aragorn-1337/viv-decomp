@@ -165,3 +165,67 @@ class TestWorkspaceGraphBuilder:
         graph = self._make(vw).get_graph(0x1000)
         for addr, bb in graph.blocks.items():
             assert bb.metadata.get("func_va") == 0x1000
+
+
+class TestSymbolikLift:
+    """Verify the live-vw builder lifts real instructions via symbolik when
+    an arch context succeeds (stubbed)."""
+
+    def test_uses_symbolik_when_context_succeeds(self, monkeypatch):
+        from viv_decomp import workspace_builder as wb
+        from dec_engine.dec_impl.ir.block import BasicBlock, BlockGraph
+
+        # Build a real IR graph the symbolic path would return.
+        entry = BasicBlock(addr=0x1000, is_entry=True)
+        call = BasicBlock(addr=0x2000)
+        entry.successors = [call]
+        call.predecessors = [entry]
+        sym_graph = BlockGraph(entry_block=entry,
+                               blocks={0x1000: entry, 0x2000: call})
+
+        class FakeCtx:
+            def getSymbolikGraph(self, fva):
+                return sym_graph
+        class FakeSelector:
+            def __init__(self, arch=None):
+                pass
+            def instantiate(self, vw):
+                return FakeCtx()
+
+        import dec_engine.dec_impl.arch.selector as sel
+        import dec_engine.dec_impl.ir.builder as irb
+
+        # EffectsBuilder is a passthrough that returns the ctx graph.
+        class FakeEffectsBuilder:
+            def __init__(self, funcva):
+                self.funcva = funcva
+            def build(self, sgraph, func_name=""):
+                return sgraph
+
+        monkeypatch.setattr(sel, "ArchSelector", FakeSelector)
+        monkeypatch.setattr(irb, "EffectsBuilder", FakeEffectsBuilder)
+        vw = _diamond_workspace()
+        builder = wb.WorkspaceGraphBuilder("<ws>")
+        builder.set_workspace(vw)
+        graph = builder.get_graph(0x1000)
+        # symbolik path won over structural
+        assert len(graph.blocks) == 2
+        assert graph.entry_block.addr == 0x1000
+
+    def test_falls_back_to_structural_on_context_failure(self, monkeypatch):
+        from viv_decomp import workspace_builder as wb
+
+        class FakeSelector:
+            def __init__(self, arch=None):
+                pass
+            def instantiate(self, vw):
+                return None  # no context -> structural
+
+        import dec_engine.dec_impl.arch.selector as sel
+        monkeypatch.setattr(sel, "ArchSelector", FakeSelector)
+        vw = _diamond_workspace()
+        builder = wb.WorkspaceGraphBuilder("<ws>")
+        builder.set_workspace(vw)
+        graph = builder.get_graph(0x1000)
+        # structural fallback: 4 code blocks
+        assert len(graph.blocks) == 4

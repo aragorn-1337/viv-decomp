@@ -48,14 +48,59 @@ class WorkspaceGraphBuilder:
                 continue
         return blocks, graph
 
+    def _build_symbolik(self, funcva: int, name: str = ""):
+        """Try to lift real instructions via Vivisect's symbolik engine.
+
+        Uses the arch-specific SymbolikAnalysisContext against the **live**
+        workspace (no binary re-load). Returns a BlockGraph with per-block
+        IR instructions on success, else None.
+        """
+        try:
+            import dec_engine.dec_impl.arch.selector as _archsel
+            import dec_engine.dec_impl.ir.builder as _irbuilder
+
+            selector = _archsel.ArchSelector(arch=self.arch)
+            ctx = selector.instantiate(self.vw)
+            if ctx is None:
+                logger.debug("No symbolik context for arch=%r", self.arch)
+                return None
+
+            sgraph = ctx.getSymbolikGraph(funcva)
+            label = name or self._func_label(funcva)
+            return _irbuilder.EffectsBuilder(funcva).build(sgraph, func_name=label)
+        except Exception as exc:  # pragma: no cover
+            logger.debug("Symbolik lift failed for %x: %s", funcva, exc)
+            return None
+
+    def _func_label(self, funcva: int) -> str:
+        try:
+            nm = self.vw.getName(funcva)
+            if nm:
+                return nm
+        except Exception:
+            pass
+        return f"func_{funcva:x}"
+
     def get_graph(self, funcva: int, name: str = "") -> BlockGraph:
-        """Build a BlockGraph from vw.getFunctionGraph(funcva)."""
+        """Build a BlockGraph from vw.getFunctionGraph(funcva).
+
+        Prefers Vivisect's symbolik lift (real per-instruction IR); falls back
+        to the structural code-block graph when no symbolik context exists.
+        """
         from dec_engine.dec_impl.ir.block import BasicBlock, BlockGraph
 
         if self.vw is None:
             self.load()
         vw = self.vw
         assert vw is not None
+
+        # Prefer the symbolik lift for real instructions (Vivisect's own
+        # decompilation), but only when it yields a non-empty graph.
+        sym_graph = self._build_symbolik(funcva, name=name)
+        if sym_graph is not None and sym_graph.blocks:
+            logger.debug("Used symbolik lift for %x (%d blocks)",
+                         funcva, len(sym_graph.blocks))
+            return sym_graph
 
         try:
             fgraph = vw.getFunctionGraph(funcva)
