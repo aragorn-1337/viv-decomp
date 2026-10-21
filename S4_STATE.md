@@ -4,9 +4,9 @@ Handoff doc for resuming work on the decompiler. Last updated after the S8
 live-workspace symbolik lift + real-binary validation.
 
 ## Active branch & git state
-- **Current branch:** `s8-symbolik-live` (last work: live-vw symbolik lift)
-- Test suite: **501/501 passing**
-- PR#16 (open): live-workspace symbolik lift + real-binary integration
+- **Current branch:** `s8-neural-types` (last work: dependency-free ML type inferrer)
+- Test suite: **512/512 passing**
+- PR#17 (open): real-corpus benchmark; PR#18 (open): neural type inference
 
 ## Branch map / PRs
 | Branch | Contents | PR |
@@ -20,7 +20,9 @@ live-workspace symbolik lift + real-binary validation.
 | `s8-plugin-system` | S8 plugin system (passes + formatters) | #13 merged |
 | `s8-binary-patch` | S8 binary patching (diff/apply/regression) | #14 merged |
 | `s8-vivisect-ext` | VivisectExtension (viv_extension.py, live-vw builder) | #15 merged |
-| `s8-symbolik-live` | live-vw symbolik lift + real-binary tests | **#16 open** |
+| `s8-symbolik-live` | live-vw symbolik lift + real-binary tests | #16 merged |
+| `s8-real-benchmark` | real-corpus benchmark (real ELF binaries) | **#17 open** |
+| `s8-neural-types` | neural type inference (dependency-free ML) | **#18 open** |
 
 ## What's done (S1–S8 foundation)
 - **S0/S1** IR layer, builder, formatter, SSA.
@@ -75,9 +77,23 @@ functions (arch amd64) and decompiles end-to-end via
 - `python -m viv_decomp BIN --view` → interactive Qt app
 - `python tests/benchmarks/run_benchmark.py` → CI quality gate
 
-## Remaining phases
-- **S8** remaining: binary patching (diff/apply/regression), LLVM backend,
-  neural type inference. Plugin system (done) makes these pluggable.
+## Real-corpus benchmark (PR#17)
+`dec_engine/dec_impl/quality/real_benchmark.py` — **55/55 real functions decompiled
++ passed quality gate** across /usr/bin/true, /bin/hostname, /bin/kbuildsycoca4,
+/bin/tunctl (~26–300KB GNU ELFs). ⚠ Skip 11MB rust-coreutils bins (too slow/timeout).
+Run: `python tests/benchmarks/run_real_benchmark.py --limit 15 --bin /bin/true`
+
+## Neural type inference (PR#18)
+`dec_engine/dec_impl/ml/` (dependency-free): features from IR (widths, memaddr,
+call-arg, ptr-src, cmp-const) → pure-Python logistic regression (binary + one-vs-rest)
+→ `NeuralTypeInferer` + plugin pass. `getSymbolikGraph` feeds EffectsBuilder → IR.
+
+## Remaining phases / TODOs
+- **Neural type inference** — extend: SymbolikEmulator for applied effects →
+  stronger type evidence; train on real-corpus features (PR#17 data).
+- **Plugin GUI interactivity** — easy interactivity with the Vivisect plugin GUI.
+- **Naming & Comments** — appropriate function names + comments in decompiled output.
+- **LLVM backend** — IR-only, roadmap.
 
 ## GitHub workflow convention
 Fork → apply to fork branch → PR against upstream `atlas0fd00m/viv-decomp`.
